@@ -1,0 +1,69 @@
+name: Deploy TanStack Start para Hospedagem Compartilhada
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    name: 🏗️ Build & 🚀 Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 🚚 Obter código mais recente
+        uses: actions/checkout@v4
+
+      - name: 🟢 Instalar Node.js 20 (LTS)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: 📦 Instalar dependências
+        run: npm ci
+
+      - name: 🛠️ Build do projeto (TanStack Start — Nitro preset static)
+        env:
+          NITRO_PRESET: static
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
+        run: npm run build
+
+      - name: 🧾 Garantir .htaccess no diretório final
+        run: |
+          if [ -f public/.htaccess ]; then
+            cp -v public/.htaccess .output/public/.htaccess
+          fi
+          echo "Conteúdo final de .output/public/:"
+          ls -la .output/public/
+
+      - name: 📂 Sincronizar arquivos estáticos via FTP
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          protocol: ${{ secrets.FTP_PROTOCOL || 'ftp' }}
+          port: ${{ secrets.FTP_PORT || 21 }}
+          local-dir: ./.output/public/
+          server-dir: ./catalogo.eixoconsorcios.com.br/
+          exclude: |
+            **/.git*
+            **/.git*/**
+            **/node_modules/**
+            **/src/**
+            **/supabase/**
+            .env
+            .env.*
+          dangerous-clean-slate: false
+
+      - name: ✅ Deploy concluído
+        run: |
+          echo "Projeto enviado com sucesso para ${{ secrets.FTP_SERVER }}:/catalogo.eixoconsorcios.com.br"
+          echo "URL final: https://catalogo.eixoconsorcios.com.br"
