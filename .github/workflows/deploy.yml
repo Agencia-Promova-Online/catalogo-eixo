@@ -28,20 +28,29 @@ jobs:
       - name: 📦 Instalar dependências
         run: npm ci
 
-      - name: 🛠️ Build do projeto (TanStack Start — Nitro preset static)
+      - name: 🛠️ Build do projeto (gera .output/public/assets/*)
         env:
-          NITRO_PRESET: static
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
         run: npm run build
 
-      - name: 🧾 Garantir .htaccess no diretório final
+      - name: 🧱 Gerar index.html estático (hospedagem compartilhada — sem Node SSR)
+        run: node scripts/generate-static-index.mjs
+
+      - name: 🧾 Garantir .htaccess no diretório final e listar arquivos
         run: |
           if [ -f public/.htaccess ]; then
             cp -v public/.htaccess .output/public/.htaccess
           fi
-          echo "Conteúdo final de .output/public/:"
+          echo "--- Arquivos em .output/public (primeiro nível): ---"
           ls -la .output/public/
+          echo "--- Existe index.html? ---"
+          test -f .output/public/index.html && echo "✅ index.html encontrado" || echo "❌ index.html NÃO encontrado"
+          echo "--- Tamanho assets: ---"
+          du -sh .output/public/assets 2>/dev/null || true
+          echo "--- assets/style (CSS/JS entry): ---"
+          ls -la .output/public/assets/styles-* 2>/dev/null || true
+          ls -la .output/public/assets/index-*  2>/dev/null || true
 
       - name: 📂 Sincronizar arquivos estáticos via FTP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5

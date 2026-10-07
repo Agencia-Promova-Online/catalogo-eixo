@@ -11,5 +11,16 @@ export default defineConfig({
     // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
     // nitro/vite builds from this
     server: { entry: "server" },
+
+    // OBSERVAÇÃO PARA DEPLOY EM HOSPEDAGEM COMPARTILHADA (sem Node):
+    // O wrapper @lovable.dev força preset Nitro = cloudflare-module, então o build
+    // NÃO emite um arquivo index.html diretamente. Nós geramos o index.html estático
+    // VIA script auxiliar `node scripts/generate-static-index.mjs` RODADO APÓS O BUILD
+    // (ver .github/workflows/deploy.yml). Isso lê os assets gerados em .output/public/assets
+    // (ex: styles-<hash>.css / index-<hash>.js) e injeta o index.html na pasta final.
+    //
+    // Para testes LOCAIS de deploy compartilhado:
+    //   npm run build && node scripts/generate-static-index.mjs
+    //   serve -s .output/public
   },
 });
