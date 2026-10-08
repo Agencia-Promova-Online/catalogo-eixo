@@ -31,44 +31,40 @@ export default defineConfig(({ mode }) => {
     publicDir: path.resolve(__dirname, "public"),
     plugins: [react(), tailwindcss()],
     resolve: {
-      alias: {
-        "@": path.resolve(__dirname, "src"),
-        "~": path.resolve(__dirname, "src"),
-        // Shim: client-side não usa async-local-storage, fornecemos stub vazio
-        "node:async_hooks": path.resolve(
-          __dirname,
-          "src/__static-shims__async-hooks.ts",
-        ),
-        "@tanstack/start-storage-context": path.resolve(
-          __dirname,
-          "src/__static-shims__start-storage-context.ts",
-        ),
-        // Shim: no build client-only, createIsomorphicFn deve priorizar .client()
-        "@tanstack/start-fn-stubs": path.resolve(
-          __dirname,
-          "src/__static-shims__start-fn-stubs.ts",
-        ),
-        // Aliases VIRTUAIS que o TanStack Start espera (compilador Vinxi resolve)
-        // No build estático, apontamos para nossos arquivos reais:
-        "#tanstack-start-entry": path.resolve(
-          __dirname,
-          "src/__static-shims__start-entry.ts",
-        ),
-        "#tanstack-router-entry": path.resolve(__dirname, "src/router.tsx"),
-        "#tanstack-start-plugin-adapters": path.resolve(
-          __dirname,
-          "node_modules/@tanstack/start-client-core/dist/esm/empty-plugin-adapters.js",
-        ),
-        // Módulo virtual de manifest (runtime SSR); no build estático é stub vazio
-        "tanstack-start-manifest:v": path.resolve(
-          __dirname,
-          "src/__static-shims__tanstack-start-manifest.ts",
-        ),
-      },
+      alias: [
+        // ============================================================
+        // PRIMEIRO: alias ESPECÍFICOS de shims (server.ts → stubs client).
+        // Devem vir ANTES do coringa "@" → src (ordem importa!).
+        // ============================================================
+        { find: "@/integrations/supabase/client.server", replacement: path.resolve(__dirname, "src/__static-shims__supabase-client-server.ts") },
+        { find: "@/lib/users.server",                 replacement: path.resolve(__dirname, "src/__static-shims__users-server.ts") },
+        { find: "@/lib/assistant.server",             replacement: path.resolve(__dirname, "src/__static-shims__assistant-server.ts") },
+        { find: "@/integrations/supabase/auth-middleware", replacement: path.resolve(__dirname, "src/__static-shims__auth-middleware.ts") },
+        { find: "integrations/supabase/client.server", replacement: path.resolve(__dirname, "src/__static-shims__supabase-client-server.ts") },
+        { find: "lib/users.server",                     replacement: path.resolve(__dirname, "src/__static-shims__users-server.ts") },
+        { find: "lib/assistant.server",                 replacement: path.resolve(__dirname, "src/__static-shims__assistant-server.ts") },
+        { find: "integrations/supabase/auth-middleware", replacement: path.resolve(__dirname, "src/__static-shims__auth-middleware.ts") },
+        { find: "node:async_hooks",                     replacement: path.resolve(__dirname, "src/__static-shims__async-hooks.ts") },
+        { find: "@tanstack/start-storage-context",      replacement: path.resolve(__dirname, "src/__static-shims__start-storage-context.ts") },
+        { find: "@tanstack/start-fn-stubs",             replacement: path.resolve(__dirname, "src/__static-shims__start-fn-stubs.ts") },
+        { find: "#tanstack-start-entry",                replacement: path.resolve(__dirname, "src/__static-shims__start-entry.ts") },
+        { find: "#tanstack-router-entry",               replacement: path.resolve(__dirname, "src/router.tsx") },
+        { find: "#tanstack-start-plugin-adapters",      replacement: path.resolve(__dirname, "node_modules/@tanstack/start-client-core/dist/esm/empty-plugin-adapters.js") },
+        { find: "tanstack-start-manifest:v",            replacement: path.resolve(__dirname, "src/__static-shims__tanstack-start-manifest.ts") },
+        // ============================================================
+        // ÚLTIMO: coringas de diretório (menos específicos).
+        // ============================================================
+        { find: "@", replacement: path.resolve(__dirname, "src") },
+        { find: "~", replacement: path.resolve(__dirname, "src") },
+      ],
     },
     define: {
       __APP_VERSION__: JSON.stringify(env.npm_package_version || "1.0.0-static"),
       "process.env.NODE_ENV": JSON.stringify(mode),
+      "process.env.VITE_SUPABASE_URL": JSON.stringify(env.VITE_SUPABASE_URL || ""),
+      "process.env.VITE_SUPABASE_PUBLISHABLE_KEY": JSON.stringify(env.VITE_SUPABASE_PUBLISHABLE_KEY || ""),
+      "process.env.SUPABASE_URL": JSON.stringify(env.SUPABASE_URL || env.VITE_SUPABASE_URL || ""),
+      "process.env.SUPABASE_PUBLISHABLE_KEY": JSON.stringify(env.SUPABASE_PUBLISHABLE_KEY || env.VITE_SUPABASE_PUBLISHABLE_KEY || ""),
       // Router basepath padrão (equivale a /)
       "process.env.TSS_ROUTER_BASEPATH": JSON.stringify("/"),
       // Força modo client no runtime do TanStack Start (não tenta invocar Nitro RPC)

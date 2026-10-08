@@ -71,12 +71,12 @@ startTransition(async () => {
     const router = getRouter();
     (window as any).__TSR_ROUTER__ = router;
     (window as any).__TSS_START_OPTIONS__ = { serializationAdapters: [] };
-    (window as any).$_TSR = (window as any).$_TSR || {
-      h: () => {},
-      t: new Map(),
-      buffer: [],
-      initialized: true,
-    };
+    // REMOVIDO: window.$_TSR do Lovable / TanStack DevTools sincronia via
+    // postMessage iframe. Em hospedagem compartilhada (fora do Lovable),
+    // essa estrutura é usada por plugins que postMessage pendurado quando
+    // window.parent !== window (ex: painel cPanel carrega site em iframe).
+    // Não definí-la é mais seguro do que criar stub com handlers que podem
+    // acumular listeners / timeouts.
 
     if (!(router.state as any).updatedAt) {
       await router.load();
