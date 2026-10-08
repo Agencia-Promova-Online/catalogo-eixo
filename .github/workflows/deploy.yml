@@ -29,10 +29,17 @@ jobs:
         run: npm ci
 
       - name: 🛠️ Build SPA Client-Side (Vite config dedicado)
-        env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
-        run: npm run build:static
+        run: |
+          # Injeta EXPLICITAMENTE no $GITHUB_ENV para Vite substituir em
+          # import.meta.env.VITE_* durante build:static (não depende só de `env:`).
+          echo "VITE_SUPABASE_URL=${{ secrets.VITE_SUPABASE_URL }}" >> "$GITHUB_ENV"
+          echo "VITE_SUPABASE_PUBLISHABLE_KEY=${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}" >> "$GITHUB_ENV"
+
+          # Sanity check (imprime primeira/última letra apenas — NÃO EXPOR SEGREDOS).
+          [ -n "$VITE_SUPABASE_URL" ] && echo "✅ VITE_SUPABASE_URL definida (len=${#VITE_SUPABASE_URL}, prefix=${VITE_SUPABASE_URL:0:18}…${VITE_SUPABASE_URL:(-4)})" || echo "❌ VITE_SUPABASE_URL VAZIA (adicione secret no GitHub)."
+          [ -n "$VITE_SUPABASE_PUBLISHABLE_KEY" ] && echo "✅ VITE_SUPABASE_PUBLISHABLE_KEY definida (len=${#VITE_SUPABASE_PUBLISHABLE_KEY}, prefix=${VITE_SUPABASE_PUBLISHABLE_KEY:0:12}…${VITE_SUPABASE_PUBLISHABLE_KEY:(-4)})" || echo "⚠️ VITE_SUPABASE_PUBLISHABLE_KEY VAZIA."
+
+          npm run build:static
 
       - name: 🧾 Listar arquivos de saída e validar .htaccess + index.html
         run: |

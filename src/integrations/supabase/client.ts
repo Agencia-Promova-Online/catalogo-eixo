@@ -27,12 +27,42 @@ function createSupabaseFetch(supabaseKey: string): typeof fetch {
   };
 }
 
+let _initError: Error | null = null;
 
 function createSupabaseClient() {
-  // Use import.meta.env for client-side (Vite build-time replacement)
-  // Fall back to process.env for SSR (server-side rendering)
-  const SUPABASE_URL = import.meta.env['VITE_SUPABASE_URL'] || process.env['SUPABASE_URL'];
-  const SUPABASE_PUBLISHABLE_KEY = import.meta.env['VITE_SUPABASE_PUBLISHABLE_KEY'] || process.env['SUPABASE_PUBLISHABLE_KEY'];
+  if (_initError) return null;
+
+  const IMPORT_ENV =
+    (typeof import.meta !== 'undefined' && (import.meta as any)?.env) ||
+    ({} as Record<string, string | undefined>);
+
+  // Runtime client-side (browser): tenta window.__VITE_ENV__ primeiro (se
+  // hospedagem injetar via script), depois import.meta.env (Vite build-time),
+  // e por ÚLTIMO window runtime fallback de <meta> tags ou env manual.
+  const WINDOW_ENV =
+    typeof window !== 'undefined'
+      ? (window as any).__VITE_ENV__ ||
+        (() => {
+          const metaUrl = document.querySelector<HTMLMetaElement>('meta[name="env:VITE_SUPABASE_URL"]')?.content;
+          const metaAnon = document.querySelector<HTMLMetaElement>('meta[name="env:VITE_SUPABASE_PUBLISHABLE_KEY"]')?.content;
+          return {
+            VITE_SUPABASE_URL: metaUrl || undefined,
+            VITE_SUPABASE_PUBLISHABLE_KEY: metaAnon || undefined,
+          };
+        })()
+      : {};
+
+  const SUPABASE_URL =
+    IMPORT_ENV.VITE_SUPABASE_URL ||
+    WINDOW_ENV.VITE_SUPABASE_URL ||
+    (typeof process !== 'undefined' ? (process as any).env?.VITE_SUPABASE_URL : undefined) ||
+    (typeof process !== 'undefined' ? (process as any).env?.SUPABASE_URL : undefined);
+
+  const SUPABASE_PUBLISHABLE_KEY =
+    IMPORT_ENV.VITE_SUPABASE_PUBLISHABLE_KEY ||
+    WINDOW_ENV.VITE_SUPABASE_PUBLISHABLE_KEY ||
+    (typeof process !== 'undefined' ? (process as any).env?.VITE_SUPABASE_PUBLISHABLE_KEY : undefined) ||
+    (typeof process !== 'undefined' ? (process as any).env?.SUPABASE_PUBLISHABLE_KEY : undefined);
 
   if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
     const missing = [
@@ -40,29 +70,75 @@ function createSupabaseClient() {
       ...(!SUPABASE_PUBLISHABLE_KEY ? ['SUPABASE_PUBLISHABLE_KEY'] : []),
     ];
     const message = `Missing Supabase environment variable(s): ${missing.join(', ')}. Connect Supabase in Lovable Cloud.`;
-    console.error(`[Supabase] ${message}`);
-    throw new Error(message);
+    // NÃO dar throw aqui — antes, em beforeLoad do TanStack Router, um throw
+    // não tratado vira microtask loop infinito e Chrome crasha como "Página
+    // sem resposta". Em vez disso retornamos null + 1 warning console.
+    if (typeof console !== 'undefined') {
+      // console.error apenas UMA vez (singleton de erro de inicialização)
+      if (!_initError) {
+        const err = new Error(message);
+        _initError = err;
+        // eslint-disable-next-line no-console
+        console.warn('[Supabase] ' + message + ' Login/Senha ficam desabilitados até corrigir secrets no GitHub Actions.');
+      }
+    }
+    return null;
   }
 
-  return createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
-    global: {
-      fetch: createSupabaseFetch(SUPABASE_PUBLISHABLE_KEY),
-    },
-    auth: {
-      storage: brokeredPreviewStorage(),
-      persistSession: true,
-      autoRefreshToken: true,
-    }
-  });
+  try {
+    return createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+      global: {
+        fetch: createSupabaseFetch(SUPABASE_PUBLISHABLE_KEY),
+      },
+      auth: {
+        storage: brokeredPreviewStorage(),
+        persistSession: true,
+        autoRefreshToken: true,
+      }
+    });
+  } catch (e) {
+    _initError = e instanceof Error ? e : new Error(String(e));
+    // eslint-disable-next-line no-console
+    console.error('[Supabase] createClient falhou:', _initError);
+    return null;
+  }
 }
 
-let _supabase: ReturnType<typeof createSupabaseClient> | undefined;
+let _supabase: ReturnType<typeof createSupabaseClient>;
 
-// Import the supabase client like this:
-// import { supabase } from "@/integrations/supabase/client";
-export const supabase = new Proxy({} as ReturnType<typeof createSupabaseClient>, {
-  get(_, prop, receiver) {
-    if (!_supabase) _supabase = createSupabaseClient();
+// Stub no-op usado quando Supabase não pode inicializar (falta secrets).
+// Evita throws em beforeLoad que travam o event loop do Chrome.
+function createNullSupabase(): any {
+  const noop = () => Promise.resolve({ data: null, error: new Error('Supabase not initialized — missing VITE_SUPABASE_URL / VITE_SUPABASE_PUBLISHABLE_KEY') });
+  return new Proxy(
+    {
+      auth: {
+        getSession: () => Promise.resolve({ data: { session: null }, error: null }),
+        getUser: () => Promise.resolve({ data: { user: null }, error: null }),
+        signInWithPassword: noop,
+        signUp: noop,
+        signOut: () => Promise.resolve({ error: null }),
+        onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } } }),
+      },
+      storage: { from: () => ({ upload: noop, remove: noop, list: noop, getPublicUrl: () => ({ data: { publicUrl: '' } }) }) },
+      from: () => ({ select: () => ({ eq: () => ({ single: noop, maybeSingle: noop, order: () => ({ range: noop }), range: noop }), range: noop, order: () => ({ eq: noop }), single: noop, maybeSingle: noop, insert: noop, update: noop, delete: noop }) }),
+      rpc: noop,
+    },
+    {
+      get(t: any, p: string | symbol, r: any) {
+        if (p in t) return Reflect.get(t, p, r);
+        return () => Promise.resolve({ data: null, error: new Error('Supabase não inicializado') });
+      },
+    },
+  );
+}
+
+export const supabase = new Proxy({} as any, {
+  get(target, prop, receiver) {
+    if (!_supabase) {
+      const client = createSupabaseClient();
+      _supabase = (client ?? (createNullSupabase() as any));
+    }
     return Reflect.get(_supabase, prop, receiver);
   },
 });
