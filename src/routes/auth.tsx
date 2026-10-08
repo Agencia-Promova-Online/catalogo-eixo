@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -36,17 +36,50 @@ function AuthPage() {
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
+  const redirectFiredRef = useRef(false);
 
   const bootstrap = useQuery({
     queryKey: ["bootstrap-admin"],
     queryFn: () => bootstrapAdminStatus(),
+    staleTime: 60_000,
+    gcTime: 60_000 * 5,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      if (data.session) navigate({ to: "/catalogo", replace: true });
+    if (redirectFiredRef.current) return;
+
+    let cancelled = false;
+
+    supabase.auth
+      .getSession()
+      .then(({ data }) => {
+        if (cancelled) return;
+        if (data.session) {
+          redirectFiredRef.current = true;
+          void navigate({ to: "/catalogo", replace: true });
+        }
+      })
+      .catch(() => {
+        /* network issues ignored here — user types credentials manually */
+      });
+
+    const { data: subscription } = supabase.auth.onAuthStateChange((event, session) => {
+      if (cancelled || redirectFiredRef.current) return;
+      if ((event === "SIGNED_IN" || event === "INITIAL_SESSION") && session) {
+        redirectFiredRef.current = true;
+        void navigate({ to: "/catalogo", replace: true });
+      }
     });
-  }, [navigate]);
+
+    return () => {
+      cancelled = true;
+      subscription?.subscription.unsubscribe?.();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const needsBootstrap = bootstrap.data?.needsBootstrap === true;
 

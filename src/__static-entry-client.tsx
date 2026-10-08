@@ -13,7 +13,7 @@
  *   dehydrated em `window.$_TSR`. Em vez disso, inicializamos igual a um SPA
  *   React clássico: getRouter() -> router.load() -> RouterProvider.
  */
-import { StrictMode, createElement, startTransition } from "react";
+import { createElement, startTransition } from "react";
 import { createRoot } from "react-dom/client";
 import { RouterProvider } from "@tanstack/react-router";
 import { getRouter } from "./router";
@@ -25,23 +25,26 @@ startTransition(async () => {
     const router = getRouter();
     (window as any).__TSR_ROUTER__ = router;
     (window as any).__TSS_START_OPTIONS__ = { serializationAdapters: [] };
-    (window as any).$_TSR = (window as any).$_TSR || { h: () => {}, t: new Map(), buffer: [], initialized: true };
+    (window as any).$_TSR = (window as any).$_TSR || {
+      h: () => {},
+      t: new Map(),
+      buffer: [],
+      initialized: true,
+    };
 
-    await router.load();
+    if (!router.state.updatedAt) await router.load();
 
     const mountPoint = document.getElementById("app-root") ?? document.body;
     if (mountPoint !== document.body) {
-      // Remove classe do loader inline (e seu CSS custom de 100vh) para o
-      // container React ocupar tamanho normal sem forçar scroll abaixo do fold.
       mountPoint.classList.remove("tpl-loader");
     }
 
+    // NOTA: StrictMode REMOVIDO intencionalmente em build estático produção.
+    // Motivo: sem hydration SSR, StrictMode invoca `router.load()` + monta
+    // RouterProvider 2x seguidas, causando loop de navegação / estado idle
+    // eterno e congelamento de inputs na página /auth.
     createRoot(mountPoint).render(
-      createElement(
-        StrictMode,
-        null,
-        createElement(RouterProvider, { router: router as any }, null),
-      ),
+      createElement(RouterProvider, { router: router as any }, null),
     );
   } catch (err) {
     console.error("[Eixo-Catálogo] Falha ao montar app (client static boot):", err);
