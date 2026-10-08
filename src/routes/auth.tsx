@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Loader2, LockKeyhole, Mail, Building2 } from "lucide-react";
+import { Loader2, LockKeyhole, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -89,8 +89,14 @@ function AuthPage() {
 
       <div className="w-full max-w-md relative z-10">
         <div className="mb-8 flex flex-col items-center text-center">
-          <div className="mb-4 flex w-16 h-16 items-center justify-center rounded-2xl bg-gold-500 shadow-[0_8px_30px_rgb(184,150,63,0.2)]">
-            <Building2 className="w-8 h-8 text-white" />
+          <div className="mb-4 flex w-16 h-16 items-center justify-center rounded-2xl bg-primary shadow-[0_8px_30px_rgb(184,150,63,0.2)] overflow-hidden">
+            <img
+              src="/favicon.png"
+              alt="Eixo-Catálogo"
+              className="w-full h-full object-contain p-1.5"
+              loading="eager"
+              fetchPriority="high"
+            />
           </div>
           <p className="font-display text-2xl font-semibold tracking-tight text-white">
             Eixo-<span className="text-gold-400">Catálogo</span>

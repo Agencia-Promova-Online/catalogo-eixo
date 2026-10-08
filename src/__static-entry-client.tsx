@@ -29,7 +29,14 @@ startTransition(async () => {
 
     await router.load();
 
-    createRoot(document.body.appendChild(document.createElement("div"))).render(
+    const mountPoint = document.getElementById("app-root") ?? document.body;
+    if (mountPoint !== document.body) {
+      // Remove classe do loader inline (e seu CSS custom de 100vh) para o
+      // container React ocupar tamanho normal sem forçar scroll abaixo do fold.
+      mountPoint.classList.remove("tpl-loader");
+    }
+
+    createRoot(mountPoint).render(
       createElement(
         StrictMode,
         null,
