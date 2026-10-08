@@ -1,4 +1,4 @@
-name: Deploy TanStack Start para Hospedagem Compartilhada
+name: Deploy Eixo-Catálogo (SPA Estático) para Hospedagem Compartilhada
 
 on:
   push:
@@ -12,47 +12,46 @@ concurrency:
 
 jobs:
   build-and-deploy:
-    name: 🏗️ Build & 🚀 Deploy
+    name: 🏗️ Build SPA Estático & 🚀 Deploy (FTP)
     runs-on: ubuntu-latest
 
     steps:
       - name: 🚚 Obter código mais recente
         uses: actions/checkout@v4
 
-      - name: 🟢 Instalar Node.js 20 (LTS)
+      - name: 🟢 Instalar Node.js 22 (LTS — requerido por Vite 8 + TanStack Start)
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
-      - name: 📦 Instalar dependências
+      - name: 📦 Instalar dependências (esbuild incluído — Tailwind Vite 4.2+)
         run: npm ci
 
-      - name: 🛠️ Build do projeto (gera .output/public/assets/*)
+      - name: 🛠️ Build SPA Client-Side (Vite config dedicado)
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
-        run: npm run build
+        run: npm run build:static
 
-      - name: 🧱 Gerar index.html estático (hospedagem compartilhada — sem Node SSR)
-        run: node scripts/generate-static-index.mjs
-
-      - name: 🧾 Garantir .htaccess no diretório final e listar arquivos
+      - name: 🧾 Listar arquivos de saída e validar .htaccess + index.html
         run: |
-          if [ -f public/.htaccess ]; then
-            cp -v public/.htaccess .output/public/.htaccess
-          fi
-          echo "--- Arquivos em .output/public (primeiro nível): ---"
-          ls -la .output/public/
-          echo "--- Existe index.html? ---"
-          test -f .output/public/index.html && echo "✅ index.html encontrado" || echo "❌ index.html NÃO encontrado"
-          echo "--- Tamanho assets: ---"
-          du -sh .output/public/assets 2>/dev/null || true
-          echo "--- assets/style (CSS/JS entry): ---"
-          ls -la .output/public/assets/styles-* 2>/dev/null || true
-          ls -la .output/public/assets/index-*  2>/dev/null || true
+          echo "--- Arquivos em dist (primeiro nível): ---"
+          ls -la dist/
+          echo
+          echo "--- Existem arquivos obrigatórios? ---"
+          test -f dist/index.html   && echo "✅ index.html (entry SPA)"     || echo "❌ index.html NÃO encontrado"
+          test -f dist/.htaccess    && echo "✅ .htaccess (Apache rewrite)" || echo "❌ .htaccess NÃO encontrado"
+          test -f dist/favicon.png  && echo "✅ favicon.png (brand logo)"   || echo "❌ favicon.png NÃO encontrado"
+          echo
+          echo "--- assets/ (CSS/JS entry): ---"
+          ls -la dist/assets/styles-* 2>/dev/null || true
+          ls -la dist/assets/index-*  2>/dev/null || true
+          echo
+          echo "--- Tamanho total dist/: ---"
+          du -sh dist 2>/dev/null || true
 
-      - name: 📂 Sincronizar arquivos estáticos via FTP
+      - name: 📂 Sincronizar arquivos estáticos via FTP (hospedagem cPanel/Apache)
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
           server: ${{ secrets.FTP_SERVER }}
@@ -60,7 +59,7 @@ jobs:
           password: ${{ secrets.FTP_PASSWORD }}
           protocol: ${{ secrets.FTP_PROTOCOL || 'ftp' }}
           port: ${{ secrets.FTP_PORT || 21 }}
-          local-dir: ./.output/public/
+          local-dir: ./dist/
           server-dir: ./catalogo.eixoconsorcios.com.br/
           exclude: |
             **/.git*
@@ -68,11 +67,22 @@ jobs:
             **/node_modules/**
             **/src/**
             **/supabase/**
+            **/scripts/**
             .env
             .env.*
           dangerous-clean-slate: false
 
       - name: ✅ Deploy concluído
         run: |
-          echo "Projeto enviado com sucesso para ${{ secrets.FTP_SERVER }}:/catalogo.eixoconsorcios.com.br"
-          echo "URL final: https://catalogo.eixoconsorcios.com.br"
+          echo "======================================================================"
+          echo "✅  Build e deploy finalizados com sucesso!"
+          echo "======================================================================"
+          echo " Servidor FTP    : ${{ secrets.FTP_SERVER }}"
+          echo " Path (server)   : ./catalogo.eixoconsorcios.com.br/"
+          echo " URL pública (HTTPS) :"
+          echo "  https://catalogo.eixoconsorcios.com.br"
+          echo "======================================================================"
+          echo " Em caso de erro 404 ao fazer F5 em rotas como /admin/maquinas,"
+          echo " confirme no Apache do servidor que .htaccess (rewrite base /) está"
+          echo " autorizado (AllowOverride All ou FileInfo)."
+          echo "======================================================================"
