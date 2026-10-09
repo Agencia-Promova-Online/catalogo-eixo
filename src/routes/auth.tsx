@@ -46,6 +46,10 @@ function AuthPage() {
     refetchOnMount: false,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
+    refetchInterval: false,
+    retry: 0,
+    retryOnMount: false,
+    throwOnError: false,
   });
 
   useEffect(() => {
@@ -81,7 +85,10 @@ function AuthPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const needsBootstrap = bootstrap.data?.needsBootstrap === true;
+  // Fallback seguro SEMPRE: se o bootstrap ainda não carregou ou deu erro,
+  // assuma "já existe admin" e mostre formulário de login normal. Isso evita
+  // qualquer travamento caso o countAdmins demore.
+  const needsBootstrap = bootstrap.isSuccess && bootstrap.data?.needsBootstrap === true;
 
   async function handleSignIn(event: React.FormEvent) {
     event.preventDefault();
