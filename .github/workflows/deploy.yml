@@ -29,17 +29,50 @@ jobs:
         run: npm ci
 
       - name: 🛠️ Build SPA Client-Side (Vite config dedicado)
+        env:
+          # Secrets injetados no ambiente do step (process.env). loadEnv do Vite
+          # lê VARs deste ambiente quando envPrefix=["VITE_"] + substitui em
+          # import.meta.env.VITE_* no build. $GITHUB_ENV vale para os PRÓXIMOS
+          # steps (não o mesmo shell), por isso mantemos aqui também.
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
         run: |
-          # Injeta EXPLICITAMENTE no $GITHUB_ENV para Vite substituir em
-          # import.meta.env.VITE_* durante build:static (não depende só de `env:`).
-          echo "VITE_SUPABASE_URL=${{ secrets.VITE_SUPABASE_URL }}" >> "$GITHUB_ENV"
-          echo "VITE_SUPABASE_PUBLISHABLE_KEY=${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}" >> "$GITHUB_ENV"
-
-          # Sanity check (imprime primeira/última letra apenas — NÃO EXPOR SEGREDOS).
-          [ -n "$VITE_SUPABASE_URL" ] && echo "✅ VITE_SUPABASE_URL definida (len=${#VITE_SUPABASE_URL}, prefix=${VITE_SUPABASE_URL:0:18}…${VITE_SUPABASE_URL:(-4)})" || echo "❌ VITE_SUPABASE_URL VAZIA (adicione secret no GitHub)."
-          [ -n "$VITE_SUPABASE_PUBLISHABLE_KEY" ] && echo "✅ VITE_SUPABASE_PUBLISHABLE_KEY definida (len=${#VITE_SUPABASE_PUBLISHABLE_KEY}, prefix=${VITE_SUPABASE_PUBLISHABLE_KEY:0:12}…${VITE_SUPABASE_PUBLISHABLE_KEY:(-4)})" || echo "⚠️ VITE_SUPABASE_PUBLISHABLE_KEY VAZIA."
-
-          npm run build:static
+          set +e  # sanity check não pode quebrar o step
+          echo "--- 1) Variáveis no shell do step ---"
+          [ -n "$VITE_SUPABASE_URL" ]            && echo "✅ VITE_SUPABASE_URL            (shell) : len=${#VITE_SUPABASE_URL} prefix=${VITE_SUPABASE_URL:0:18}…${VITE_SUPABASE_URL:(-4)}" || echo "❌ VITE_SUPABASE_URL            (shell) : VAZIA"
+          [ -n "$VITE_SUPABASE_PUBLISHABLE_KEY" ] && echo "✅ VITE_SUPABASE_PUBLISHABLE_KEY (shell) : len=${#VITE_SUPABASE_PUBLISHABLE_KEY} prefix=${VITE_SUPABASE_PUBLISHABLE_KEY:0:12}…${VITE_SUPABASE_PUBLISHABLE_KEY:(-4)}" || echo "❌ VITE_SUPABASE_PUBLISHABLE_KEY (shell) : VAZIA"
+          echo
+          echo "--- 2) Escreve em \$GITHUB_ENV para steps posteriores ---"
+          # Passo defensivo: apesar de termos `env:` neste step, garantimos que
+          # os próximos steps também enxerguem (ex: debug final).
+          {
+            echo "VITE_SUPABASE_URL=${VITE_SUPABASE_URL}"
+            echo "VITE_SUPABASE_PUBLISHABLE_KEY=${VITE_SUPABASE_PUBLISHABLE_KEY}"
+          } >> "$GITHUB_ENV"
+          echo
+          echo "--- 3) Build Vite (vite.static.config.ts, outDir=dist) ---"
+          # 🔑 CRÍTICO: usar `env VAR=... npm run X` GARANTE que variáveis entram
+          #    no `process.env` do processo filho do Vite (não depende de shell
+          #    export ou GITHUB_ENV). Método mais seguro para runners Ubuntu.
+          VITE_SUPABASE_URL="${VITE_SUPABASE_URL}" \
+          VITE_SUPABASE_PUBLISHABLE_KEY="${VITE_SUPABASE_PUBLISHABLE_KEY}" \
+            npm run build:static
+          BUILD_RC=$?
+          echo
+          if [ "$BUILD_RC" -ne 0 ]; then
+            echo "❌ npm run build:static FALHOU (exit=$BUILD_RC). Veja logs acima."
+            exit $BUILD_RC
+          fi
+          echo "--- 4) Sanity check pós-build — vars inliner no bundle? ---"
+          INDEX_JS=$(ls dist/assets/index-*.js 2>/dev/null | head -n 1)
+          if [ -n "$INDEX_JS" ]; then
+            HIT=$(grep -c "aynepdnkrjlrdmskduoq" "$INDEX_JS" 2>/dev/null || echo 0)
+            [ "$HIT" -gt 0 ] && echo "✅ SUPABASE_PROJECT_ID (aynepdnkrjlrdmskduoq) encontrado no bundle (vars embutidas OK)" \
+                            || echo "⚠️  SUPABASE_PROJECT_ID NÃO encontrado no bundle — login provavelmente vai dar 'Missing Supabase environment variable(s)'"
+          else
+            echo "❌ Nenhum index-*.js em dist/assets/. Build inválido."
+            exit 2
+          fi
 
       - name: 🧾 Listar arquivos de saída e validar .htaccess + index.html
         run: |

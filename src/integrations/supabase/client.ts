@@ -42,9 +42,14 @@ let _initError: Error | null = null;
 function createSupabaseClient() {
   if (_initError) return null;
 
-  const IMPORT_ENV =
-    (typeof import.meta !== 'undefined' && (import.meta as any)?.env) ||
-    ({} as Record<string, string | undefined>);
+  // 🔑 CRÍTICO: Vite (build-time) SÓ substitui `import.meta.env.VITE_ALGUMA_COISA
+  // acessados DIRETAMENTE, sem optional chaining / casts as any / desestruturação.
+  // Se usarmos (import.meta as any)?.env o Vite NÃO FAZ a substituição e o
+  // valor fica undefined no bundle de produção, caindo no stub warning "Missing
+  // Supabase vars". Abaixo acessamos cada variável diretamente e também
+  // garantimos que o build enxerga.
+  const VITE_URL = (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? undefined;
+  const VITE_ANON = (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined) ?? undefined;
 
   const WINDOW_ENV =
     typeof window !== 'undefined'
@@ -59,17 +64,40 @@ function createSupabaseClient() {
         })()
       : {};
 
+  const PROCESS_ENV = (() => {
+    try {
+      // fallback runtime: SSR edge node:browser não temos process (ou pode ser undefined
+      // em strict mode). NOTA: Rolldown (Vite 8) não tolera ternários com ?? e
+      // cast `as` no mesmo termo; vamos usar múltiplos ifs.
+      let pEnv: Record<string, string | undefined> = {};
+      if (typeof process !== 'undefined') {
+        const procAny = process as any;
+        if (procAny && procAny.env && typeof procAny.env === 'object') {
+          pEnv = procAny.env;
+        }
+      }
+      return {
+        VITE_SUPABASE_URL: pEnv.VITE_SUPABASE_URL,
+        VITE_SUPABASE_PUBLISHABLE_KEY: pEnv.VITE_SUPABASE_PUBLISHABLE_KEY,
+        SUPABASE_URL: pEnv.SUPABASE_URL,
+        SUPABASE_PUBLISHABLE_KEY: pEnv.SUPABASE_PUBLISHABLE_KEY,
+      };
+    } catch {
+      return {} as any;
+    }
+  })();
+
   const SUPABASE_URL =
-    IMPORT_ENV.VITE_SUPABASE_URL ||
+    VITE_URL ||
     WINDOW_ENV.VITE_SUPABASE_URL ||
-    (typeof process !== 'undefined' ? (process as any).env?.VITE_SUPABASE_URL : undefined) ||
-    (typeof process !== 'undefined' ? (process as any).env?.SUPABASE_URL : undefined);
+    PROCESS_ENV.VITE_SUPABASE_URL ||
+    PROCESS_ENV.SUPABASE_URL;
 
   const SUPABASE_PUBLISHABLE_KEY =
-    IMPORT_ENV.VITE_SUPABASE_PUBLISHABLE_KEY ||
+    VITE_ANON ||
     WINDOW_ENV.VITE_SUPABASE_PUBLISHABLE_KEY ||
-    (typeof process !== 'undefined' ? (process as any).env?.VITE_SUPABASE_PUBLISHABLE_KEY : undefined) ||
-    (typeof process !== 'undefined' ? (process as any).env?.SUPABASE_PUBLISHABLE_KEY : undefined);
+    PROCESS_ENV.VITE_SUPABASE_PUBLISHABLE_KEY ||
+    PROCESS_ENV.SUPABASE_PUBLISHABLE_KEY;
 
   if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
     const missing = [
