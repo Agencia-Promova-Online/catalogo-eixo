@@ -1,17 +1,31 @@
-import { useEffect, useRef, useState } from "react";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { Loader2, LockKeyhole, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
-import { bootstrapAdminStatus, createFirstAdmin } from "@/lib/users.functions";
-
 
 export const Route = createFileRoute("/auth")({
   ssr: false,
+  beforeLoad: async () => {
+    try {
+      const { data } = await supabase.auth.getSession();
+      if (data.session) {
+        throw redirect({ to: "/catalogo", replace: true });
+      }
+    } catch (err) {
+      const isRedirect =
+        err !== null &&
+        typeof err === "object" &&
+        ((err as any).code === "REDIRECT" ||
+          (err as any).statusCode === 302 ||
+          (err as any).statusCode === 301 ||
+          (err as any).headers instanceof Headers);
+      if (isRedirect) throw err;
+    }
+  },
   head: () => ({
     meta: [
       { title: "Acesso Interno | Eixo-Catálogo" },
@@ -34,191 +48,165 @@ function AuthPage() {
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
-  const redirectFiredRef = useRef(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const bootstrap = useQuery({
-    queryKey: ["bootstrap-admin"],
-    queryFn: () => bootstrapAdminStatus(),
-    staleTime: 60_000,
-    gcTime: 60_000 * 5,
-    refetchOnMount: false,
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
-    refetchInterval: false,
-    retry: 0,
-    retryOnMount: false,
-    throwOnError: false,
-  });
-
-  useEffect(() => {
-    if (redirectFiredRef.current) return;
-
-    let cancelled = false;
-
-    supabase.auth
-      .getSession()
-      .then(({ data }) => {
-        if (cancelled) return;
-        if (data.session) {
-          redirectFiredRef.current = true;
-          void navigate({ to: "/catalogo", replace: true });
-        }
-      })
-      .catch(() => {
-        /* network issues ignored here — user types credentials manually */
-      });
-
-    const { data: subscription } = supabase.auth.onAuthStateChange((event, session) => {
-      if (cancelled || redirectFiredRef.current) return;
-      if ((event === "SIGNED_IN" || event === "INITIAL_SESSION") && session) {
-        redirectFiredRef.current = true;
-        void navigate({ to: "/catalogo", replace: true });
-      }
-    });
-
-    return () => {
-      cancelled = true;
-      subscription?.subscription.unsubscribe?.();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Fallback seguro SEMPRE: se o bootstrap ainda não carregou ou deu erro,
-  // assuma "já existe admin" e mostre formulário de login normal. Isso evita
-  // qualquer travamento caso o countAdmins demore.
-  const needsBootstrap = bootstrap.isSuccess && bootstrap.data?.needsBootstrap === true;
-
-  async function handleSignIn(event: React.FormEvent) {
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-    setLoading(false);
-    if (error) {
-      toast.error("E-mail ou senha inválidos.");
+    setError(null);
+
+    if (!email || !password) {
+      setError("Informe o e-mail e a senha.");
       return;
     }
-    navigate({ to: "/catalogo", replace: true });
-  }
 
-  async function handleBootstrap(event: React.FormEvent) {
-    event.preventDefault();
-    if (password.length < 8) {
-      toast.error("A senha deve ter pelo menos 8 caracteres.");
-      return;
-    }
-    setLoading(true);
     try {
-      await createFirstAdmin({ data: { name: name.trim(), email: email.trim(), password } });
-      const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-      if (error) throw new Error(error.message);
-      toast.success("Administrador criado com sucesso!");
+      setLoading(true);
+      const { data, error: signInError } =
+        await supabase.auth.signInWithPassword({ email, password });
+
+      if (signInError || !data.session) {
+        const msg =
+          signInError?.message?.includes("Invalid") ||
+          signInError?.message?.includes("credentials")
+            ? "Credenciais inválidas. Verifique seu e-mail e senha."
+            : signInError?.message || "Falha ao autenticar.";
+        setError(msg);
+        toast.error(msg);
+        return;
+      }
+
+      toast.success("Login realizado com sucesso. Redirecionando…");
       navigate({ to: "/catalogo", replace: true });
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Falha ao criar administrador.");
+    } catch (err) {
+      const msg =
+        err instanceof Error ? err.message : "Erro inesperado ao fazer login.";
+      setError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <main className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-ink-900 px-4 py-10 text-white">
-      <div className="pointer-events-none absolute -top-40 -right-40 size-96 rounded-full bg-gold-500 blur-3xl opacity-5" aria-hidden />
-      <div className="pointer-events-none absolute -bottom-40 -left-40 size-[30rem] rounded-full bg-gold-500 blur-3xl opacity-5" aria-hidden />
-
-      <div className="w-full max-w-md relative z-10">
-        <div className="mb-8 flex flex-col items-center text-center">
-          <div className="mb-4 flex w-16 h-16 items-center justify-center rounded-2xl bg-primary shadow-[0_8px_30px_rgb(184,150,63,0.2)] overflow-hidden">
+    <div className="relative min-h-screen w-full overflow-hidden bg-gradient-to-br from-stone-50 via-amber-50 to-stone-100">
+      <main className="relative z-10 flex min-h-screen w-full items-center justify-center px-4 py-10">
+        <section
+          aria-labelledby="auth-heading"
+          className="w-full max-w-md rounded-2xl border border-stone-200/70 bg-white p-8 shadow-xl"
+        >
+          <div className="mb-8 flex flex-col items-center gap-2 text-center">
             <img
-              src="/favicon.png"
+              src="/brand/logo.svg"
               alt="Eixo-Catálogo"
-              className="w-full h-full object-contain p-1.5"
-              loading="eager"
-              fetchPriority="high"
+              className="h-11 w-auto drop-shadow-sm"
+              onError={(e) => {
+                (e.currentTarget as HTMLImageElement).style.visibility =
+                  "hidden";
+              }}
             />
+            <span className="text-sm font-semibold uppercase tracking-[0.32em] text-amber-600">
+              Catálogo
+            </span>
+            <div className="mt-4 space-y-1">
+              <h1
+                id="auth-heading"
+                className="text-2xl font-semibold tracking-tight text-stone-900"
+              >
+                Área administrativa
+              </h1>
+              <h2 className="text-sm font-normal text-stone-500">
+                Acesso da equipe
+              </h2>
+            </div>
           </div>
-          <p className="font-display text-2xl font-semibold tracking-tight text-white">
-            Eixo-<span className="text-gold-400">Catálogo</span>
-          </p>
-          <h1 className="mt-1 text-sm font-medium uppercase tracking-[0.28em] text-ink-400">
-            Área administrativa
-          </h1>
-        </div>
 
-        <div className="bg-white text-ink-900 rounded-2xl shadow-2xl p-8 animate-slide-up">
-          <div className="mb-6 flex items-center gap-2">
-            <LockKeyhole className="w-5 h-5 text-gold-500" />
-            <h2 className="font-display text-xl font-semibold text-ink-900">
-              {needsBootstrap ? "Criar administrador" : "Acesso da equipe"}
-            </h2>
-          </div>
-
-          <form className="space-y-4" onSubmit={needsBootstrap ? handleBootstrap : handleSignIn}>
-            {needsBootstrap ? (
-              <div>
-                <Label htmlFor="name">Nome completo</Label>
-                <Input
-                  id="name"
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                  required
-                  maxLength={120}
-                  autoComplete="name"
-                  className="mt-1.5"
+          <form onSubmit={handleSubmit} noValidate className="space-y-5">
+            <div className="space-y-2">
+              <Label htmlFor="email" className="text-sm font-medium text-stone-700">
+                E-mail
+              </Label>
+              <div className="relative">
+                <Mail
+                  aria-hidden="true"
+                  className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400"
                 />
+                <Input
+                  id="email"
+                  name="email"
+                  type="email"
+                  inputMode="email"
+                  autoComplete="email"
+                  autoCorrect="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  required
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  placeholder="voce@eixoconsorcios.com.br"
+                  className="h-11 rounded-xl border-stone-200 bg-stone-50/60 pl-9 pr-3 text-stone-900 placeholder:text-stone-400 focus:bg-white focus-visible:ring-amber-500/30"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label
+                htmlFor="password"
+                className="text-sm font-medium text-stone-700"
+              >
+                Senha
+              </Label>
+              <div className="relative">
+                <LockKeyhole
+                  aria-hidden="true"
+                  className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400"
+                />
+                <Input
+                  id="password"
+                  name="password"
+                  type="password"
+                  autoComplete="current-password"
+                  required
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder="Sua senha de acesso"
+                  className="h-11 rounded-xl border-stone-200 bg-stone-50/60 pl-9 pr-3 text-stone-900 placeholder:text-stone-400 focus:bg-white focus-visible:ring-amber-500/30"
+                />
+              </div>
+            </div>
+
+            {error ? (
+              <div
+                role="alert"
+                className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+              >
+                {error}
               </div>
             ) : null}
 
-            <div>
-              <Label htmlFor="email">E-mail</Label>
-              <div className="relative mt-1.5">
-                <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-300" aria-hidden />
-                <Input
-                  id="email"
-                  type="email"
-                  inputMode="email"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  required
-                  maxLength={255}
-                  autoComplete="username"
-                  className="pl-10"
-                />
-              </div>
-            </div>
-
-            <div>
-              <Label htmlFor="password">Senha</Label>
-              <div className="relative mt-1.5">
-                <LockKeyhole className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-300" aria-hidden />
-                <Input
-                  id="password"
-                  type="password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  required
-                  minLength={needsBootstrap ? 8 : 1}
-                  maxLength={72}
-                  autoComplete={needsBootstrap ? "new-password" : "current-password"}
-                  className="pl-10"
-                />
-              </div>
-            </div>
-
-            <Button type="submit" size="lg" className="w-full mt-6" disabled={loading}>
-              {loading ? <Loader2 className="size-4 animate-spin" /> : null}
-              {needsBootstrap ? "Criar e entrar" : "Entrar"}
+            <Button
+              type="submit"
+              size="lg"
+              disabled={loading}
+              className="h-11 w-full rounded-xl bg-gradient-to-r from-amber-500 via-amber-400 to-yellow-500 text-sm font-semibold uppercase tracking-[0.18em] text-stone-900 shadow-md shadow-amber-500/20 transition hover:shadow-lg hover:shadow-amber-500/30 focus-visible:ring-amber-500/40 disabled:cursor-not-allowed disabled:opacity-70"
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Entrando…
+                </>
+              ) : (
+                "Entrar"
+              )}
             </Button>
           </form>
 
-          <p className="mt-5 text-xs text-ink-400 leading-relaxed">
-            {needsBootstrap
-              ? "Nenhum administrador cadastrado ainda. Este primeiro acesso cria o administrador do sistema."
-              : "Cada funcionário possui um usuário próprio. Solicite o acesso ao administrador."}
+          <p className="mt-6 text-center text-xs leading-relaxed text-stone-500">
+            Cada funcionário possui um usuário próprio. Solicite o acesso ao
+            administrador.
           </p>
-        </div>
-      </div>
-    </main>
+        </section>
+      </main>
+    </div>
   );
 }

@@ -119,35 +119,29 @@ function createSupabaseClient() {
         fetch: createSupabaseFetch(SUPABASE_PUBLISHABLE_KEY),
       },
       auth: {
-        // ✅ localStorage padrão. Nenhum broker. Nenhum postMessage.
-        // DetectKeyInStorage + persistSession funcionam normalmente com
-        // esta configuração.
         storage:
           typeof window !== 'undefined' && 'localStorage' in window
             ? {
-                getItem: (key: string): Promise<string | null> => {
+                getItem: (key: string): string | null => {
                   try {
-                    return Promise.resolve(localStorage.getItem(key));
+                    return localStorage.getItem(key);
                   } catch (err) {
-                    // Cookie disabled / private mode → não crashar.
-                    return Promise.resolve(null);
+                    return null;
                   }
                 },
-                setItem: (key: string, value: string): Promise<void> => {
+                setItem: (key: string, value: string): void => {
                   try {
                     localStorage.setItem(key, value);
                   } catch (_err) {
                     /* quota excedida / private mode: silencioso */
                   }
-                  return Promise.resolve();
                 },
-                removeItem: (key: string): Promise<void> => {
+                removeItem: (key: string): void => {
                   try {
                     localStorage.removeItem(key);
                   } catch (_err) {
                     /* noop */
                   }
-                  return Promise.resolve();
                 },
               }
             : undefined,
@@ -191,13 +185,17 @@ function createNullSupabase(): any {
   );
 }
 
-export const supabase = new Proxy({} as any, {
-  get(target, prop, receiver) {
-    if (!_supabase) {
-      const client = createSupabaseClient();
-      _supabase = (client ?? (createNullSupabase() as any));
-    }
-    return Reflect.get(_supabase, prop, receiver);
-  },
-});
+// Inicializa UMA vez no carregamento do módulo. Sem Proxy externo.
+// As variáveis de ambiente são lidas no createSupabaseClient(); se faltar,
+// cai no createNullSupabase() (stub seguro) e loga warning UMA vez.
+(function init() {
+  try {
+    const client = createSupabaseClient();
+    _supabase = (client ?? (createNullSupabase() as any));
+  } catch {
+    _supabase = createNullSupabase() as any;
+  }
+})();
+
+export const supabase = _supabase as ReturnType<typeof createClient<Database>>;
 

@@ -10,7 +10,7 @@ export const getRouter = () => {
         gcTime: 30 * 60 * 1000,
         refetchOnWindowFocus: false,
         refetchOnMount: false,
-        retry: 1,
+        retry: 0,
       },
     },
   });
